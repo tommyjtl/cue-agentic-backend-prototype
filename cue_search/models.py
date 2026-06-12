@@ -15,6 +15,7 @@ class SearchRequest(BaseModel):
     corpus_root: str
     llm: LLMConfig
     max_sources: int = Field(default=5, ge=1, le=10)
+    summary_only: bool = False
 
 
 class SourceResult(BaseModel):

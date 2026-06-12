@@ -87,21 +87,25 @@ class SearchService:
             final_content = "I could not find an answer in your saved notes."
 
         cited_paths, cleaned_answer = self._extract_cited_paths(final_content)
-        sources = self._build_sources(
-            cited_paths=cited_paths,
-            retrieval_hits=retrieval_hits,
-            corpus_root=request.corpus_root,
-            max_sources=request.max_sources,
+        sources: list[SourceResult] = []
+        if not request.summary_only:
+            sources = self._build_sources(
+                cited_paths=cited_paths,
+                retrieval_hits=retrieval_hits,
+                corpus_root=request.corpus_root,
+                max_sources=request.max_sources,
+            )
+
+        debug = None if request.summary_only else SearchDebug(
+            tool_calls=tool_call_count,
+            retrieval_chunks=len(retrieval_hits),
+            agent_turns=agent_turns,
         )
 
         return SearchResponse(
             answer=cleaned_answer,
             sources=sources,
-            debug=SearchDebug(
-                tool_calls=tool_call_count,
-                retrieval_chunks=len(retrieval_hits),
-                agent_turns=agent_turns,
-            ),
+            debug=debug,
         )
 
     def _chat(self, llm: LLMConfig, messages: list[dict], tools: list[dict]) -> dict:
