@@ -36,6 +36,27 @@ def test_parse_message_received_event():
     assert inbound.urls == ["https://example.com/mlx"]
 
 
+def test_parse_media_part_prefers_attachment_id_over_direct_url():
+    payload = {
+        **MESSAGE_RECEIVED_V3,
+        "data": {
+            **MESSAGE_RECEIVED_V3["data"],
+            "parts": [
+                {
+                    "type": "media",
+                    "url": "https://cdn.example.com/image.png",
+                    "attachment_id": "att-123",
+                }
+            ],
+        },
+    }
+
+    inbound = parse_message_received_event(payload)
+    assert inbound is not None
+    assert inbound.media_urls == []
+    assert inbound.attachment_ids == ["att-123"]
+
+
 def test_parse_ignores_outbound():
     payload = {
         **MESSAGE_RECEIVED_V3,

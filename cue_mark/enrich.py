@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from urllib.parse import urlparse
 
-import httpx
 import trafilatura
+
+from cue_mark.browser_fetch import host_from_url
+from cue_mark.fetch import fetch_page_html
 
 URL_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 
@@ -15,6 +16,7 @@ class PageContext:
     url: str
     title: str
     extracted_text: str
+    fetch_method: str = "http"
 
 
 def extract_urls(text: str, explicit_urls: list[str]) -> list[str]:
@@ -27,17 +29,7 @@ def extract_urls(text: str, explicit_urls: list[str]) -> list[str]:
 
 def fetch_page_context(url: str) -> PageContext:
     normalized_url = url.strip()
-    if not normalized_url:
-        raise ValueError("URL cannot be empty.")
-
-    with httpx.Client(
-        timeout=30.0,
-        follow_redirects=True,
-        headers={"User-Agent": "CueMarkBot/0.1 (+https://github.com/cue)"},
-    ) as client:
-        response = client.get(normalized_url)
-        response.raise_for_status()
-        html = response.text
+    html, fetch_method = fetch_page_html(normalized_url)
 
     extracted = trafilatura.extract(
         html,
@@ -50,10 +42,15 @@ def fetch_page_context(url: str) -> PageContext:
     if not title:
         title = _title_from_html(html) or normalized_url
 
+    extracted_text = (extracted or "").strip()
+    if not extracted_text:
+        extracted_text = _extract_host_specific_text(html, normalized_url)
+
     return PageContext(
         url=normalized_url,
         title=title,
-        extracted_text=(extracted or "").strip(),
+        extracted_text=extracted_text,
+        fetch_method=fetch_method,
     )
 
 
@@ -75,5 +72,50 @@ def _title_from_html(html: str) -> str:
     return re.sub(r"\s+", " ", match.group(1)).strip()
 
 
-def host_from_url(url: str) -> str:
-    return urlparse(url).hostname or ""
+def _extract_host_specific_text(html: str, url: str) -> str:
+    host = host_from_url(url)
+    if host == "mp.weixin.qq.com":
+        return _extract_element_text(html, id="js_content")
+    return ""
+
+
+def _extract_element_text(html: str, *, id: str) -> str:
+    from html.parser import HTMLParser
+
+    class _ElementTextParser(HTMLParser):
+        def __init__(self, target_id: str) -> None:
+            super().__init__()
+            self.target_id = target_id
+            self.in_target = False
+            self.depth = 0
+            self.parts: list[str] = []
+
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            attrs_dict = {key: value for key, value in attrs if value is not None}
+            if not self.in_target:
+                if attrs_dict.get("id") == self.target_id:
+                    self.in_target = True
+                    self.depth = 1
+                return
+            self.depth += 1
+
+        def handle_endtag(self, tag: str) -> None:
+            if not self.in_target:
+                return
+            self.depth -= 1
+            if self.depth == 0:
+                self.in_target = False
+
+        def handle_data(self, data: str) -> None:
+            if not self.in_target:
+                return
+            text = data.strip()
+            if text:
+                self.parts.append(text)
+
+    parser = _ElementTextParser(id)
+    parser.feed(html)
+    return " ".join(parser.parts)
+
+
+__all__ = ["PageContext", "extract_urls", "fetch_page_context", "host_from_url", "primary_page_context_message"]

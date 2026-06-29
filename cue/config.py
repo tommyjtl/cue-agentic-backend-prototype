@@ -33,6 +33,14 @@ class Settings(BaseSettings):
         default="gemma4:e4b-mlx", validation_alias="CUE_MARK_LLM_MODEL"
     )
     mark_llm_api_key: str = Field(default="", validation_alias="CUE_MARK_LLM_API_KEY")
+    mark_llm_num_predict: int = Field(
+        default=4096,
+        validation_alias="CUE_MARK_LLM_NUM_PREDICT",
+    )
+    mark_embed_images: bool = Field(
+        default=True,
+        validation_alias="CUE_MARK_EMBED_IMAGES",
+    )
 
     search_llm_model: str = Field(default="", validation_alias="CUE_SEARCH_LLM_MODEL")
 
@@ -91,6 +99,23 @@ class Settings(BaseSettings):
     ocr_auto_detect_language: bool = Field(
         default=False,
         validation_alias="CUE_OCR_AUTO_DETECT_LANGUAGE",
+    )
+
+    mark_fetch_mode: Literal["auto", "http", "browser"] = Field(
+        default="auto",
+        validation_alias="CUE_MARK_FETCH_MODE",
+    )
+    mark_browser_fetch_enabled: bool = Field(
+        default=True,
+        validation_alias="CUE_MARK_BROWSER_FETCH_ENABLED",
+    )
+    mark_browser_fetch_hosts: str = Field(
+        default="mp.weixin.qq.com",
+        validation_alias="CUE_MARK_BROWSER_FETCH_HOSTS",
+    )
+    mark_browser_fetch_timeout_ms: int = Field(
+        default=30_000,
+        validation_alias="CUE_MARK_BROWSER_FETCH_TIMEOUT_MS",
     )
 
     public_strict_routes: bool = Field(

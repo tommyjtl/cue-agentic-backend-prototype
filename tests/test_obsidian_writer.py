@@ -5,11 +5,9 @@ from cue.obsidian.writer import (
     ExportKind,
     Reference,
     WriteInput,
-    append_snapshot,
     build_markdown,
     file_name_for_title,
     sanitize_title_base,
-    should_include_snapshot,
     write_note,
 )
 from cue_mark.parser import has_substantive_content
@@ -57,13 +55,6 @@ def test_write_note_creates_dated_folder(tmp_path: Path):
     )
     assert result.file_path.exists()
     assert result.file_path.parent.name == "2026-06-11"
-
-
-def test_snapshot_helpers():
-    assert should_include_snapshot("https://example.com/post", "x" * 500, "")
-    assert not should_include_snapshot("https://example.com/", "x" * 500, "")
-    body = append_snapshot("## Highlights\n\nOne", "## Snapshot\n\nText")
-    assert "## Snapshot" in body
 
 
 def test_has_substantive_content():

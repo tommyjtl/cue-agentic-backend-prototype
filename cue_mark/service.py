@@ -5,18 +5,16 @@ from pathlib import Path
 
 from cue.config import settings
 from cue.llm.chat import chat_text
+from cue.obsidian.images import append_linq_asset_images
 from cue.obsidian.writer import (
     ExportKind,
     Reference,
     WriteInput,
-    append_snapshot,
-    build_snapshot_section,
-    should_include_snapshot,
     write_note,
 )
-from cue_mark.enrich import PageContext, extract_urls, fetch_page_context, primary_page_context_message
+from cue_mark.enrich import extract_urls, fetch_page_context, primary_page_context_message
 from cue_mark.models import CaptureRequest, MarkResponse
-from cue_mark.parser import MarkParseError, parse_generated_note
+from cue_mark.parser import JSON_RETRY_USER_MESSAGE, MarkParseError, parse_generated_note
 from cue_mark.prompts import build_page_system_prompt, build_standalone_system_prompt
 from cue_search.models import LLMConfig
 from cue_search.search_service import SearchService
@@ -87,19 +85,18 @@ class MarkService:
         elif llm_image_paths:
             user_messages.append({"role": "user", "content": "Bookmark this page."})
 
-        response_text = chat_text(
-            llm_config,
-            system_prompt,
-            user_messages,
+        response_text = self._generate_note_json(
+            llm_config=llm_config,
+            system_prompt=system_prompt,
+            user_messages=user_messages,
             image_paths=llm_image_paths,
+            fallback_title=page.title,
         )
         parsed = parse_generated_note(response_text, fallback_title=page.title)
 
         body = parsed.body
         captured_at = datetime.now(timezone.utc)
-        if should_include_snapshot(page.url, page.extracted_text, user_hint):
-            snapshot = build_snapshot_section(page.url, page.title, page.extracted_text, captured_at)
-            body = append_snapshot(body, snapshot)
+        body = self._append_linq_assets(body, vault_root, image_paths, captured_at)
 
         write_result = write_note(
             WriteInput(
@@ -139,20 +136,22 @@ class MarkService:
         )
         merged_hint, llm_image_paths = self._prepare_image_context(user_hint, image_paths)
         capture_text = merged_hint or "Save this image capture."
-        response_text = chat_text(
-            llm_config,
-            system_prompt,
-            [{"role": "user", "content": capture_text}],
-            image_paths=llm_image_paths,
-        )
         fallback_title = user_hint[:60] if user_hint else "Mobile capture"
+        response_text = self._generate_note_json(
+            llm_config=llm_config,
+            system_prompt=system_prompt,
+            user_messages=[{"role": "user", "content": capture_text}],
+            image_paths=llm_image_paths,
+            fallback_title=fallback_title,
+        )
         parsed = parse_generated_note(response_text, fallback_title=fallback_title)
 
         captured_at = datetime.now(timezone.utc)
+        body = self._append_linq_assets(parsed.body, vault_root, image_paths, captured_at)
         write_result = write_note(
             WriteInput(
                 title=parsed.title,
-                body=parsed.body,
+                body=body,
                 source_url=None,
                 references=[],
                 created_at=captured_at,
@@ -180,12 +179,66 @@ class MarkService:
         user_hint: str,
         image_paths: list[Path],
     ) -> tuple[str, list[Path]]:
-        return prepare_image_context(
+        merged_hint, llm_paths = prepare_image_context(
             user_hint,
             image_paths,
             ocr_enabled=settings.ocr_enabled,
             automatically_detect_language=settings.ocr_auto_detect_language,
         )
+        if settings.mark_embed_images and image_paths:
+            return merged_hint, []
+        return merged_hint, llm_paths
+
+    def _append_linq_assets(
+        self,
+        body: str,
+        vault_root: Path,
+        image_paths: list[Path],
+        captured_at: datetime,
+    ) -> str:
+        if not settings.mark_embed_images or not image_paths:
+            return body
+        return append_linq_asset_images(
+            body,
+            vault_root=vault_root,
+            image_paths=image_paths,
+            captured_at=captured_at,
+        )
+
+    def _generate_note_json(
+        self,
+        *,
+        llm_config: LLMConfig,
+        system_prompt: str,
+        user_messages: list[dict[str, str]],
+        image_paths: list[Path],
+        fallback_title: str,
+    ) -> str:
+        response_text = chat_text(
+            llm_config,
+            system_prompt,
+            user_messages,
+            image_paths=image_paths,
+            num_predict=settings.mark_llm_num_predict,
+        )
+        try:
+            parse_generated_note(response_text, fallback_title=fallback_title)
+            return response_text
+        except MarkParseError:
+            retry_messages = [
+                *user_messages,
+                {"role": "assistant", "content": response_text},
+                {"role": "user", "content": JSON_RETRY_USER_MESSAGE},
+            ]
+            retry_text = chat_text(
+                llm_config,
+                system_prompt,
+                retry_messages,
+                image_paths=image_paths,
+                num_predict=settings.mark_llm_num_predict,
+            )
+            parse_generated_note(retry_text, fallback_title=fallback_title)
+            return retry_text
 
 
 __all__ = ["MarkService", "MarkParseError"]

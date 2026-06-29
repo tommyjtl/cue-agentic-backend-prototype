@@ -18,6 +18,13 @@ Requires **Ollama** running locally with:
 - Chat model for search (default: `gemma4:e4b-mlx`)
 - Chat/vision model for mark (default: `gemma4:e4b-mlx`)
 
+For gated pages (WeChat articles, JS-heavy sites), install the browser fetch extra:
+
+```bash
+pip install -e ".[dev,browser]"
+playwright install chromium
+```
+
 ## Config
 
 Create `.env` or export:
@@ -114,8 +121,14 @@ curl -s http://127.0.0.1:8765/v1/search \
 | `CUE_MARK_LLM_PROVIDER` | `ollama` |
 | `CUE_MARK_LLM_BASE_URL` | `http://localhost:11434` |
 | `CUE_MARK_LLM_MODEL` | `gemma4:e4b-mlx` |
+| `CUE_MARK_LLM_NUM_PREDICT` | `4096` (Ollama max output tokens for mark notes) |
+| `CUE_MARK_EMBED_IMAGES` | `true` (save Linq/CLI images under `linq-assets/`; OCR text only goes to LLM) |
 | `CUE_OCR_ENABLED` | `true` (macOS Apple Vision) |
 | `CUE_OCR_AUTO_DETECT_LANGUAGE` | `false` (off = English only) |
+| `CUE_MARK_FETCH_MODE` | `auto` (`auto`, `http`, `browser`) |
+| `CUE_MARK_BROWSER_FETCH_ENABLED` | `true` |
+| `CUE_MARK_BROWSER_FETCH_HOSTS` | `mp.weixin.qq.com` |
+| `CUE_MARK_BROWSER_FETCH_TIMEOUT_MS` | `30000` |
 | `CUE_SEARCH_LANCEDB_PATH` | `~/Library/Application Support/Cue/search/lancedb` |
 | `CUE_SEARCH_EMBEDDINGS_MODEL` | `snowflake-arctic-embed2:latest` |
 

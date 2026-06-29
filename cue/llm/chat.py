@@ -15,6 +15,7 @@ def chat_text(
     messages: list[dict[str, Any]],
     *,
     image_paths: list[Path] | None = None,
+    num_predict: int | None = None,
 ) -> str:
     payload_messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
     payload_messages.extend(messages)
@@ -24,10 +25,12 @@ def chat_text(
 
     if config.provider == "openai":
         client = OpenAIChatClient(config)
+        response = client.chat(payload_messages)
     else:
         client = OllamaChatClient(config)
+        options = {"num_predict": num_predict} if num_predict is not None else None
+        response = client.chat(payload_messages, options=options)
 
-    response = client.chat(payload_messages)
     content = (response.get("content") or "").strip()
     if not content:
         raise RuntimeError("LLM returned an empty response.")

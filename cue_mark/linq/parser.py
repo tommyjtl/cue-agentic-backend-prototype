@@ -64,12 +64,15 @@ def parse_message_received_event(payload: dict[str, Any]) -> InboundMessage | No
             continue
 
         if part_type == "media":
-            media_url = str(part.get("url") or part.get("download_url") or "").strip()
-            if media_url:
-                media_urls.append(media_url)
             attachment_id = str(part.get("attachment_id") or part.get("id") or "").strip()
+            media_url = str(part.get("url") or part.get("download_url") or "").strip()
             if attachment_id:
-                attachment_ids.append(attachment_id)
+                if attachment_id not in attachment_ids:
+                    attachment_ids.append(attachment_id)
+            elif media_url:
+                if media_url not in media_urls:
+                    media_urls.append(media_url)
+            continue
 
     text = "\n".join(text_parts).strip()
     urls.extend(extract_urls(text, []))

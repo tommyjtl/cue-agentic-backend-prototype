@@ -236,8 +236,12 @@ class LinqWebhookHandler:
             return downloaded
 
         temp_dir = Path(tempfile.mkdtemp(prefix="cue-linq-"))
+        seen_download_urls: set[str] = set()
 
         for index, media_url in enumerate(inbound.media_urls):
+            if media_url in seen_download_urls:
+                continue
+            seen_download_urls.add(media_url)
             suffix = _suffix_from_url(media_url, default=".jpg")
             target = temp_dir / f"media-{index}{suffix}"
             target.write_bytes(client.download_url(media_url))
@@ -246,8 +250,9 @@ class LinqWebhookHandler:
         for index, attachment_id in enumerate(inbound.attachment_ids):
             metadata = client.get_attachment(attachment_id)
             download_url = str(metadata.get("download_url") or "").strip()
-            if not download_url:
+            if not download_url or download_url in seen_download_urls:
                 continue
+            seen_download_urls.add(download_url)
             content_type = str(metadata.get("content_type") or "")
             suffix = IMAGE_SUFFIXES.get(content_type.lower(), _suffix_from_filename(metadata.get("filename")))
             target = temp_dir / f"attachment-{index}{suffix}"

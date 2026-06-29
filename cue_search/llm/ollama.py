@@ -17,6 +17,8 @@ class OllamaChatClient:
         self,
         messages: list[dict[str, Any]],
         tools: list[dict] | None = None,
+        *,
+        options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": self.config.model,
@@ -25,6 +27,8 @@ class OllamaChatClient:
         }
         if tools:
             payload["tools"] = tools
+        if options:
+            payload["options"] = options
 
         with httpx.Client(timeout=180.0) as client:
             response = client.post(f"{self.base_url}/api/chat", json=payload)
