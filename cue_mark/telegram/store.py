@@ -4,8 +4,10 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+OFFSET_KEY = "poll_offset"
 
-class LinqEventStore:
+
+class TelegramEventStore:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
         self._ensure_schema()
@@ -19,11 +21,11 @@ class LinqEventStore:
         with self._connect() as connection:
             connection.execute(
                 """
-                CREATE TABLE IF NOT EXISTS linq_events (
+                CREATE TABLE IF NOT EXISTS telegram_events (
                     event_id TEXT PRIMARY KEY,
                     status TEXT NOT NULL,
                     chat_id TEXT,
-                    sender_handle TEXT,
+                    sender_id TEXT,
                     title TEXT,
                     file_path TEXT,
                     error TEXT,
@@ -32,18 +34,51 @@ class LinqEventStore:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS telegram_state (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+                """
+            )
 
-    def try_begin(self, event_id: str, *, chat_id: str, sender_handle: str) -> bool:
+    def get_poll_offset(self) -> int | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT value FROM telegram_state WHERE key = ?",
+                (OFFSET_KEY,),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            return int(row["value"])
+        except ValueError:
+            return None
+
+    def set_poll_offset(self, offset: int) -> None:
+        now = _utc_now()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO telegram_state (key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (OFFSET_KEY, str(offset)),
+            )
+
+    def try_begin(self, event_id: str, *, chat_id: str, sender_id: str) -> bool:
         now = _utc_now()
         with self._connect() as connection:
             try:
                 connection.execute(
                     """
-                    INSERT INTO linq_events (
-                        event_id, status, chat_id, sender_handle, created_at, updated_at
+                    INSERT INTO telegram_events (
+                        event_id, status, chat_id, sender_id, created_at, updated_at
                     ) VALUES (?, 'processing', ?, ?, ?, ?)
                     """,
-                    (event_id, chat_id, sender_handle, now, now),
+                    (event_id, chat_id, sender_id, now, now),
                 )
                 return True
             except sqlite3.IntegrityError:
@@ -60,7 +95,7 @@ class LinqEventStore:
         with self._connect() as connection:
             connection.execute(
                 """
-                UPDATE linq_events
+                UPDATE telegram_events
                 SET status = 'completed',
                     title = ?,
                     file_path = ?,
@@ -76,7 +111,7 @@ class LinqEventStore:
         with self._connect() as connection:
             connection.execute(
                 """
-                UPDATE linq_events
+                UPDATE telegram_events
                 SET status = 'failed',
                     error = ?,
                     updated_at = ?
@@ -88,7 +123,7 @@ class LinqEventStore:
     def get(self, event_id: str) -> dict | None:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM linq_events WHERE event_id = ?",
+                "SELECT * FROM telegram_events WHERE event_id = ?",
                 (event_id,),
             ).fetchone()
         return dict(row) if row else None

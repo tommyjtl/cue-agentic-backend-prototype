@@ -75,24 +75,23 @@ class Settings(BaseSettings):
         default=8, validation_alias="CUE_SEARCH_RETRIEVAL_TOP_K"
     )
 
-    linq_api_base_url: str = Field(
-        default="https://api.linqapp.com/api/partner/v3",
-        validation_alias="CUE_LINQ_API_BASE_URL",
+    telegram_bot_token: str = Field(
+        default="", validation_alias="CUE_TELEGRAM_BOT_TOKEN"
     )
-    linq_api_key: str = Field(default="", validation_alias="CUE_LINQ_API_KEY")
-    linq_webhook_secret: str = Field(
-        default="", validation_alias="CUE_LINQ_WEBHOOK_SECRET"
+    telegram_allowed_users: str = Field(
+        default="", validation_alias="CUE_TELEGRAM_ALLOWED_USERS"
     )
-    linq_allowed_senders: str = Field(
-        default="", validation_alias="CUE_LINQ_ALLOWED_SENDERS"
+    telegram_api_base_url: str = Field(
+        default="https://api.telegram.org",
+        validation_alias="CUE_TELEGRAM_API_BASE_URL",
     )
-    linq_jobs_db_path: str = Field(
-        default="~/Library/Application Support/Cue/linq-jobs.sqlite3",
-        validation_alias="CUE_LINQ_JOBS_DB_PATH",
+    telegram_poll_timeout_seconds: int = Field(
+        default=30,
+        validation_alias="CUE_TELEGRAM_POLL_TIMEOUT_SECONDS",
     )
-    linq_webhook_max_age_seconds: int = Field(
-        default=300,
-        validation_alias="CUE_LINQ_WEBHOOK_MAX_AGE_SECONDS",
+    telegram_jobs_db_path: str = Field(
+        default="~/Library/Application Support/Cue/telegram-jobs.sqlite3",
+        validation_alias="CUE_TELEGRAM_JOBS_DB_PATH",
     )
 
     ocr_enabled: bool = Field(default=True, validation_alias="CUE_OCR_ENABLED")
@@ -126,10 +125,6 @@ class Settings(BaseSettings):
         default=False,
         validation_alias="CUE_PUBLIC_EXPOSE_HEALTH",
     )
-    webhook_rate_limit_per_minute: int = Field(
-        default=60,
-        validation_alias="CUE_WEBHOOK_RATE_LIMIT_PER_MINUTE",
-    )
 
     @property
     def lancedb_dir(self) -> Path:
@@ -150,19 +145,19 @@ class Settings(BaseSettings):
         return expand_user_path(self.mark_vault_root)
 
     @property
-    def linq_jobs_db_file(self) -> Path:
-        path = expand_user_path(self.linq_jobs_db_path)
+    def telegram_jobs_db_file(self) -> Path:
+        path = expand_user_path(self.telegram_jobs_db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
 
     @property
-    def linq_allowed_sender_set(self) -> set[str]:
-        values = [item.strip() for item in self.linq_allowed_senders.split(",")]
+    def telegram_allowed_user_set(self) -> set[str]:
+        values = [item.strip() for item in self.telegram_allowed_users.split(",")]
         return {item for item in values if item}
 
     @property
-    def linq_configured(self) -> bool:
-        return bool(self.linq_api_key.strip() and self.linq_webhook_secret.strip())
+    def telegram_configured(self) -> bool:
+        return bool(self.telegram_bot_token.strip())
 
     @property
     def search_corpus_root(self) -> str:

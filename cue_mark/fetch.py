@@ -12,19 +12,11 @@ from cue_mark.browser_fetch import (
     fetch_html_with_browser,
     host_from_url,
 )
+from cue_mark.page_gates import PageFetchBlockedError, blocked_message_for_url, is_gated_html
 
 logger = logging.getLogger(__name__)
 
 FetchMode = Literal["auto", "http", "browser"]
-
-GATE_MARKERS = (
-    "请在微信客户端打开",
-    "请在微信中打开",
-    "环境异常",
-    "完成验证后即可继续访问",
-    "verify_user",
-    "captcha",
-)
 
 MIN_USABLE_TEXT_CHARS = 120
 
@@ -43,11 +35,6 @@ def should_use_browser_first(url: str, mode: FetchMode) -> bool:
     if mode == "http":
         return False
     return host_from_url(url) in browser_hosts()
-
-
-def is_gated_html(html: str) -> bool:
-    lowered = html.lower()
-    return any(marker.lower() in lowered for marker in GATE_MARKERS)
 
 
 def is_usable_extracted_text(text: str) -> bool:
@@ -91,13 +78,24 @@ def fetch_page_html(url: str, *, mode: FetchMode | None = None) -> tuple[str, st
             return html, "browser"
 
     html = fetch_html_http(normalized_url)
+    if is_gated_html(html) and not browser_enabled:
+        raise PageFetchBlockedError(blocked_message_for_url(normalized_url))
+
     if fetch_mode == "auto" and browser_enabled and _should_retry_with_browser(html):
         logger.info("HTTP fetch looked gated or empty for %s; retrying with browser.", normalized_url)
-        html = fetch_html_with_browser(
-            normalized_url,
-            timeout_ms=settings.mark_browser_fetch_timeout_ms,
-        )
+        try:
+            html = fetch_html_with_browser(
+                normalized_url,
+                timeout_ms=settings.mark_browser_fetch_timeout_ms,
+            )
+        except PageFetchBlockedError:
+            raise
+        if is_gated_html(html):
+            raise PageFetchBlockedError(blocked_message_for_url(normalized_url))
         return html, "browser"
+
+    if is_gated_html(html):
+        raise PageFetchBlockedError(blocked_message_for_url(normalized_url))
 
     return html, "http"
 

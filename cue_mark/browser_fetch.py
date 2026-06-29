@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import logging
 from urllib.parse import urlparse
 
-logger = logging.getLogger(__name__)
+from cue_mark.page_gates import PageFetchBlockedError, blocked_message_for_url, is_gated_html, is_gated_url
 
 BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -33,12 +32,18 @@ def content_selector_for_url(url: str) -> str | None:
     return HOST_CONTENT_SELECTORS.get(host)
 
 
+def _raise_if_blocked(*, requested_url: str, page_url: str, html: str) -> None:
+    if is_gated_url(page_url) or is_gated_html(html):
+        raise PageFetchBlockedError(blocked_message_for_url(requested_url))
+
+
 def fetch_html_with_browser(url: str, *, timeout_ms: int = 30_000) -> str:
     if not browser_fetch_available():
         raise RuntimeError(
             "Playwright is not installed. Run: pip install -e \".[browser]\" && playwright install chromium"
         )
 
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
     from playwright.sync_api import sync_playwright
 
     selector = content_selector_for_url(url)
@@ -52,10 +57,20 @@ def fetch_html_with_browser(url: str, *, timeout_ms: int = 30_000) -> str:
             )
             page = context.new_page()
             page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-            if selector:
-                page.wait_for_selector(selector, timeout=timeout_ms)
-            else:
-                page.wait_for_load_state("networkidle", timeout=timeout_ms)
-            return page.content()
+            _raise_if_blocked(requested_url=url, page_url=page.url, html=page.content())
+
+            try:
+                if selector:
+                    page.wait_for_selector(selector, timeout=timeout_ms)
+                else:
+                    page.wait_for_load_state("networkidle", timeout=timeout_ms)
+            except PlaywrightTimeoutError:
+                html = page.content()
+                _raise_if_blocked(requested_url=url, page_url=page.url, html=html)
+                raise
+
+            html = page.content()
+            _raise_if_blocked(requested_url=url, page_url=page.url, html=html)
+            return html
         finally:
             browser.close()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from pathlib import Path
 
 import uvicorn
@@ -9,9 +10,14 @@ import uvicorn
 from cue.config import settings
 from cue_mark.models import CaptureRequest
 from cue_mark.service import MarkService
+from cue_mark.telegram.handler import TelegramUpdateHandler
+from cue_mark.telegram.poller import run_poller
+from cue_mark.telegram.store import TelegramEventStore
 from cue_search.models import LLMConfig, SearchRequest
 from cue_search.search_service import SearchService
 from cue_server.logging_config import uvicorn_log_config
+
+logger = logging.getLogger(__name__)
 
 
 def cli() -> None:
@@ -29,10 +35,16 @@ def cli() -> None:
     capture_parser.add_argument("--image", action="append", default=[], dest="images")
     capture_parser.add_argument("--no-sync-index", action="store_true")
 
-    linq_parser = subparsers.add_parser("linq", help="Linq webhook utilities")
-    linq_subparsers = linq_parser.add_subparsers(dest="linq_command")
-    simulate_parser = linq_subparsers.add_parser("simulate", help="Process a saved webhook JSON locally")
+    telegram_parser = subparsers.add_parser("telegram", help="Telegram bot utilities")
+    telegram_subparsers = telegram_parser.add_subparsers(dest="telegram_command")
+    telegram_subparsers.add_parser("poll", help="Run Telegram long-polling worker")
+    simulate_parser = telegram_subparsers.add_parser(
+        "simulate",
+        help="Process a saved Telegram Update JSON locally",
+    )
     simulate_parser.add_argument("payload_file")
+    jobs_parser = telegram_subparsers.add_parser("jobs", help="Show job status for an update")
+    jobs_parser.add_argument("update_id")
 
     ocr_parser = subparsers.add_parser("ocr", help="Extract text from an image with Apple Vision")
     ocr_parser.add_argument("image_path")
@@ -76,15 +88,26 @@ def cli() -> None:
         print(json.dumps(response.model_dump(), indent=2))
         return
 
-    if args.command == "linq" and args.linq_command == "simulate":
-        from cue_mark.linq.handler import LinqWebhookHandler
+    if args.command == "telegram" and args.telegram_command == "poll":
+        logging.basicConfig(level=logging.INFO)
+        run_poller()
+        return
 
+    if args.command == "telegram" and args.telegram_command == "simulate":
         payload = json.loads(Path(args.payload_file).read_text(encoding="utf-8"))
-        handler = LinqWebhookHandler()
-        status, inbound = handler.accept_payload_dict(payload)
+        handler = TelegramUpdateHandler()
+        status, inbound = handler.accept_update(payload)
         print(json.dumps(status, indent=2))
         if inbound is not None:
             handler.process_inbound(inbound)
+        return
+
+    if args.command == "telegram" and args.telegram_command == "jobs":
+        store = TelegramEventStore(settings.telegram_jobs_db_file)
+        row = store.get(args.update_id)
+        if row is None:
+            raise SystemExit(f"Unknown Telegram update: {args.update_id}")
+        print(json.dumps(row, indent=2))
         return
 
     if args.command == "ocr":

@@ -27,6 +27,10 @@ class NoteStore:
             return self._db.open_table(TABLE_NAME)
         return None
 
+    def refresh_table(self) -> None:
+        """Re-open the LanceDB table from disk (picks up writes from other handles/processes)."""
+        self._table = self._ensure_table()
+
     @property
     def table(self):
         if self._table is None:
@@ -73,6 +77,7 @@ class NoteStore:
         return len(rows)
 
     def search(self, query: str, limit: int = 8) -> list[dict]:
+        self.refresh_table()
         if self._table is None or self._table.count_rows() == 0:
             return []
 

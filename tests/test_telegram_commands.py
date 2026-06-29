@@ -1,6 +1,6 @@
 import pytest
 
-from cue_mark.linq.commands import parse_text_command
+from cue_mark.telegram.commands import parse_text_command
 
 
 @pytest.mark.parametrize(
@@ -10,7 +10,12 @@ from cue_mark.linq.commands import parse_text_command
         ("SEARCH MLX agents", "search", "MLX agents"),
         ("search", "search", ""),
         ("  search   something  ", "search", "something"),
+        ("/search what about frp?", "search", "what about frp?"),
+        ("/search@cue_bot what about frp?", "search", "what about frp?"),
+        ("ping", "ping", ""),
+        ("/ping", "ping", ""),
         ("reindex", "reindex", ""),
+        ("/reindex", "reindex", ""),
         ("  REINDEX  ", "reindex", ""),
         ("nice tool", "mark", ""),
         ("searching for jobs", "mark", ""),

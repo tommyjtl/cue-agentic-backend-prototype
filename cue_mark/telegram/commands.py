@@ -4,8 +4,9 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-CommandKind = Literal["mark", "search", "reindex"]
+CommandKind = Literal["mark", "search", "reindex", "ping"]
 
+PING_RE = re.compile(r"^ping\s*$", re.IGNORECASE)
 REINDEX_RE = re.compile(r"^reindex\s*$", re.IGNORECASE)
 SEARCH_EMPTY_RE = re.compile(r"^search\s*$", re.IGNORECASE)
 SEARCH_QUERY_RE = re.compile(r"^search\s+(.+)$", re.IGNORECASE | re.DOTALL)
@@ -21,10 +22,33 @@ class ParsedTextCommand:
     search_query: str = ""
 
 
-def parse_text_command(text: str) -> ParsedTextCommand:
+def normalize_command_text(text: str) -> str:
     trimmed = text.strip()
+    if not trimmed.startswith("/"):
+        return trimmed
+
+    parts = trimmed.split(maxsplit=1)
+    command = parts[0].split("@", 1)[0].lower()
+    rest = parts[1].strip() if len(parts) > 1 else ""
+
+    if command == "/search":
+        return f"search {rest}".strip()
+    if command == "/reindex":
+        return "reindex"
+    if command == "/ping":
+        return "ping"
+    if command in {"/mark", "/start"}:
+        return rest
+    return trimmed
+
+
+def parse_text_command(text: str) -> ParsedTextCommand:
+    trimmed = normalize_command_text(text)
     if not trimmed:
         return ParsedTextCommand(kind="mark")
+
+    if PING_RE.match(trimmed):
+        return ParsedTextCommand(kind="ping")
 
     if REINDEX_RE.match(trimmed):
         return ParsedTextCommand(kind="reindex")

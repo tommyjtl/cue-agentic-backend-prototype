@@ -16,20 +16,6 @@ def test_public_scanner_paths_are_blocked(monkeypatch):
     assert response.status_code == 404
 
 
-def test_public_webhook_path_is_allowed(monkeypatch):
-    monkeypatch.setattr(settings, "public_strict_routes", True)
-    monkeypatch.setattr(settings, "linq_api_key", "")
-    monkeypatch.setattr(settings, "linq_webhook_secret", "")
-
-    client = TestClient(app)
-    response = client.post(
-        "/v1/linq/webhook",
-        json={},
-        headers={"X-Forwarded-For": "54.157.59.12"},
-    )
-    assert response.status_code == 503
-
-
 def test_localhost_can_reach_search(monkeypatch):
     monkeypatch.setattr(settings, "public_strict_routes", True)
 

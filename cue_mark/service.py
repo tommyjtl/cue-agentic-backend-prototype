@@ -5,7 +5,7 @@ from pathlib import Path
 
 from cue.config import settings
 from cue.llm.chat import chat_text
-from cue.obsidian.images import append_linq_asset_images
+from cue.obsidian.images import append_telegram_asset_images
 from cue.obsidian.writer import (
     ExportKind,
     Reference,
@@ -96,7 +96,7 @@ class MarkService:
 
         body = parsed.body
         captured_at = datetime.now(timezone.utc)
-        body = self._append_linq_assets(body, vault_root, image_paths, captured_at)
+        body = self._append_telegram_assets(body, vault_root, image_paths, captured_at)
 
         write_result = write_note(
             WriteInput(
@@ -147,7 +147,7 @@ class MarkService:
         parsed = parse_generated_note(response_text, fallback_title=fallback_title)
 
         captured_at = datetime.now(timezone.utc)
-        body = self._append_linq_assets(parsed.body, vault_root, image_paths, captured_at)
+        body = self._append_telegram_assets(parsed.body, vault_root, image_paths, captured_at)
         write_result = write_note(
             WriteInput(
                 title=parsed.title,
@@ -189,7 +189,7 @@ class MarkService:
             return merged_hint, []
         return merged_hint, llm_paths
 
-    def _append_linq_assets(
+    def _append_telegram_assets(
         self,
         body: str,
         vault_root: Path,
@@ -198,7 +198,7 @@ class MarkService:
     ) -> str:
         if not settings.mark_embed_images or not image_paths:
             return body
-        return append_linq_asset_images(
+        return append_telegram_asset_images(
             body,
             vault_root=vault_root,
             image_paths=image_paths,

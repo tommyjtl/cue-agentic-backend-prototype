@@ -28,6 +28,62 @@ def test_is_gated_html_detects_weixin_gate():
     assert is_gated_html(html) is True
 
 
+def test_is_gated_url_detects_weixin_captcha_redirect():
+    from cue_mark.page_gates import is_gated_url
+
+    assert is_gated_url(
+        "https://mp.weixin.qq.com/mp/wappoc_appmsgcaptcha?target_url=https%3A%2F%2Fmp.weixin.qq.com%2Fs%2Fabc"
+    )
+
+
+def test_fetch_html_with_browser_raises_on_weixin_captcha(monkeypatch):
+    from cue_mark.browser_fetch import fetch_html_with_browser
+    from cue_mark.page_gates import PageFetchBlockedError
+
+    class FakePage:
+        url = "https://mp.weixin.qq.com/mp/wappoc_appmsgcaptcha?target_url=https%3A%2F%2Fmp.weixin.qq.com%2Fs%2Fabc"
+
+        def goto(self, url, wait_until, timeout):
+            return None
+
+        def content(self):
+            return "<html><body>captcha</body></html>"
+
+    class FakeContext:
+        def new_page(self):
+            return FakePage()
+
+    class FakeBrowser:
+        def new_context(self, **kwargs):
+            return FakeContext()
+
+        def close(self):
+            return None
+
+    class FakeChromium:
+        def launch(self, headless):
+            return FakeBrowser()
+
+    class FakePlaywright:
+        chromium = FakeChromium()
+
+    class FakeSyncPlaywright:
+        def __enter__(self):
+            return FakePlaywright()
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr("playwright.sync_api.sync_playwright", lambda: FakeSyncPlaywright())
+
+    try:
+        fetch_html_with_browser("https://mp.weixin.qq.com/s/example")
+        raise AssertionError("Expected PageFetchBlockedError")
+    except PageFetchBlockedError as exc:
+        assert "WeChat blocked automated fetch" in str(exc)
+        assert "screenshot" in str(exc)
+
+
 def test_is_usable_extracted_text():
     assert is_usable_extracted_text("x" * 119) is False
     assert is_usable_extracted_text("x" * 120) is True

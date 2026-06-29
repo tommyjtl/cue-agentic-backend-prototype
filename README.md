@@ -1,6 +1,6 @@
 # Cue agentic backend
 
-Python backend for Cue **mark capture** and **`/search`**: indexes bookmark markdown in LanceDB, runs agentic RAG for search, and captures new bookmarks from CLI (Linq webhook coming next).
+Python backend for Cue **mark capture** and **`/search`**: indexes bookmark markdown in LanceDB, runs agentic RAG for search, and captures new bookmarks from CLI or Telegram.
 
 macOS Cue app is unchanged — it keeps using `/v1/search` on localhost.
 
@@ -122,7 +122,7 @@ curl -s http://127.0.0.1:8765/v1/search \
 | `CUE_MARK_LLM_BASE_URL` | `http://localhost:11434` |
 | `CUE_MARK_LLM_MODEL` | `gemma4:e4b-mlx` |
 | `CUE_MARK_LLM_NUM_PREDICT` | `4096` (Ollama max output tokens for mark notes) |
-| `CUE_MARK_EMBED_IMAGES` | `true` (save Linq/CLI images under `linq-assets/`; OCR text only goes to LLM) |
+| `CUE_MARK_EMBED_IMAGES` | `true` (save Telegram/CLI images under `telegram-assets/`; OCR text only goes to LLM) |
 | `CUE_OCR_ENABLED` | `true` (macOS Apple Vision) |
 | `CUE_OCR_AUTO_DETECT_LANGUAGE` | `false` (off = English only) |
 | `CUE_MARK_FETCH_MODE` | `auto` (`auto`, `http`, `browser`) |
@@ -140,59 +140,63 @@ pytest
 
 Integration tests that call Ollama or fetch URLs are manual via `cue mark capture` and `cue query`.
 
-## Next: Linq + FRP
+## Telegram capture
 
-Phase 2 adds iMessage capture via Linq. Configure:
+Capture bookmarks by DMing your bot in Telegram. Uses long polling — no public URL or tunnel required.
 
-```bash
-export CUE_LINQ_API_KEY="..."
-export CUE_LINQ_WEBHOOK_SECRET="whsec_..."   # from webhook subscription create response
-export CUE_LINQ_ALLOWED_SENDERS="+1xxxxxxxxxx"  # your phone number (comma-separated)
-```
+### 1. Create a bot
 
-Create a Linq webhook subscription pointing at your public FRP URL:
+1. Open **@BotFather** in Telegram
+2. Send `/newbot` and follow the prompts
+3. Save the API token
 
-```bash
-curl -X POST https://api.linqapp.com/api/partner/v3/webhook-subscriptions \
-  -H "Authorization: Bearer $CUE_LINQ_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "target_url": "https://cue.example.com/v1/linq/webhook",
-    "subscribed_events": ["message.received"]
-  }'
-```
+Optional in BotFather:
 
-Store the returned `signing_secret` as `CUE_LINQ_WEBHOOK_SECRET`.
+- `/setdescription` — describe what the bot does
+- `/setcommands` — e.g. `search`, `reindex`
 
-Endpoints:
+### 2. Configure
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/v1/linq/webhook` | Linq inbound (verify signature, enqueue mark job) |
-| `GET` | `/v1/linq/jobs/{event_id}` | Job status for debugging |
-
-Local webhook simulation without Linq:
+Add to `.env`:
 
 ```bash
-cue linq simulate ./sample-message-received.json
+CUE_TELEGRAM_BOT_TOKEN="123456789:AAH..."
+CUE_TELEGRAM_ALLOWED_USERS="123456789"   # your Telegram user ID (comma-separated)
 ```
 
-Flow: iMessage → Linq → FRP → `cue serve` → mark pipeline → Obsidian note → iMessage reply `Saved: {title}`.
+Find your user ID by messaging [@userinfobot](https://t.me/userinfobot), or send your bot a message and inspect `getUpdates` output.
 
-### iMessage commands
+### 3. Run the poller
 
-Text messages can start with these commands (case-insensitive, prefix only):
+```bash
+cue telegram poll
+```
+
+Open your bot in Telegram, tap **Start**, then send messages:
 
 | Message | Action | Reply |
 |---------|--------|-------|
+| `ping` | Check allowlist (works even if not allowed yet) | `pong — you're allowed...` or your user id |
 | `search your question` | Search bookmarks (summary only) | Answer text |
 | `search` | — | Usage hint |
 | `reindex` | Sync LanceDB index | `Indexed N chunks from M files.` |
-| anything else | Mark capture | `Saved: {title}` |
+| text, URL, or photo | Mark capture | `Saved: {title}` |
 
 Examples:
 
 ```
+https://example.com/post
 search what did I save about frp?
 reindex
 ```
+
+Local simulation without Telegram:
+
+```bash
+cue telegram simulate ./sample-update.json
+cue telegram jobs 10001
+```
+
+Flow: Telegram → `cue telegram poll` → mark pipeline → Obsidian note → Telegram reply `Saved: {title}`.
+
+The HTTP server (`cue serve`) is optional for Telegram capture; keep it running if the macOS Cue app uses `/v1/search`.

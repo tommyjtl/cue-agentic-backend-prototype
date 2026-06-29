@@ -20,7 +20,7 @@ def mark_service(monkeypatch, tmp_path):
     return service
 
 
-def test_standalone_capture_saves_linq_assets_without_sending_to_llm(
+def test_standalone_capture_saves_telegram_assets_without_sending_to_llm(
     monkeypatch,
     mark_service: MarkService,
     tmp_path: Path,
@@ -59,8 +59,8 @@ def test_standalone_capture_saves_linq_assets_without_sending_to_llm(
     assert llm_image_paths_seen == [[]]
     written = Path(result.file_path).read_text(encoding="utf-8")
     assert "## Attachments" in written
-    assert "../linq-assets/" in written
+    assert "../telegram-assets/" in written
     assert "base64" not in written
-    assets = list((tmp_path / "vault" / "linq-assets").glob("*.png"))
+    assets = list((tmp_path / "vault" / "telegram-assets").glob("*.png"))
     assert len(assets) == 1
     assert assets[0].read_bytes() == b"fake-image-bytes"

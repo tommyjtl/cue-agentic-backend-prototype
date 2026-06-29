@@ -4,15 +4,15 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-LINQ_ASSETS_DIR = "linq-assets"
+TELEGRAM_ASSETS_DIR = "telegram-assets"
 
 
-def save_linq_assets(
+def save_telegram_assets(
     vault_root: Path,
     image_paths: list[Path],
     captured_at: datetime,
 ) -> list[Path]:
-    assets_dir = vault_root / LINQ_ASSETS_DIR
+    assets_dir = vault_root / TELEGRAM_ASSETS_DIR
     assets_dir.mkdir(parents=True, exist_ok=True)
 
     stamp = captured_at.astimezone(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -33,11 +33,11 @@ def save_linq_assets(
 
 
 def markdown_link_for_asset(asset_path: Path, *, label: str) -> str:
-    relative_path = Path("..") / LINQ_ASSETS_DIR / asset_path.name
+    relative_path = Path("..") / TELEGRAM_ASSETS_DIR / asset_path.name
     return f"![{label}]({relative_path.as_posix()})"
 
 
-def append_linq_asset_images(
+def append_telegram_asset_images(
     body: str,
     *,
     vault_root: Path,
@@ -47,7 +47,7 @@ def append_linq_asset_images(
     if not image_paths:
         return body
 
-    saved_assets = save_linq_assets(vault_root, image_paths, captured_at)
+    saved_assets = save_telegram_assets(vault_root, image_paths, captured_at)
     lines = [body.rstrip(), "", "## Attachments", ""]
     for index, asset_path in enumerate(saved_assets, start=1):
         label = "Image" if len(saved_assets) == 1 else f"Image {index}"
