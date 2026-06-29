@@ -93,6 +93,10 @@ class Settings(BaseSettings):
         default="~/Library/Application Support/Cue/telegram-jobs.sqlite3",
         validation_alias="CUE_TELEGRAM_JOBS_DB_PATH",
     )
+    telegram_intent_router_enabled: bool = Field(
+        default=False,
+        validation_alias="CUE_TELEGRAM_INTENT_ROUTER_ENABLED",
+    )
 
     ocr_enabled: bool = Field(default=True, validation_alias="CUE_OCR_ENABLED")
     ocr_auto_detect_language: bool = Field(

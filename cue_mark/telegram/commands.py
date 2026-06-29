@@ -7,7 +7,7 @@ from typing import Literal
 CommandKind = Literal["mark", "search", "reindex", "ping"]
 
 PING_RE = re.compile(r"^ping\s*$", re.IGNORECASE)
-REINDEX_RE = re.compile(r"^reindex\s*$", re.IGNORECASE)
+REINDEX_RE = re.compile(r"^reindex(?:\s+.*)?$", re.IGNORECASE)
 SEARCH_EMPTY_RE = re.compile(r"^search\s*$", re.IGNORECASE)
 SEARCH_QUERY_RE = re.compile(r"^search\s+(.+)$", re.IGNORECASE | re.DOTALL)
 

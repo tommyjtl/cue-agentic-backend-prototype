@@ -274,3 +274,155 @@ def test_handler_routes_reindex_command(monkeypatch, tmp_path):
         "123456789",
         "Indexed 42 chunks from 3 files.",
     )
+
+
+def test_handler_classifier_uncertain_returns_clarification(monkeypatch, tmp_path):
+    from cue.config import settings
+    from cue_mark.telegram.intent_router import IntentClassification
+
+    monkeypatch.setattr(settings, "mark_vault_root", str(tmp_path / "vault"))
+    monkeypatch.setattr(settings, "telegram_allowed_users", "123456789")
+    monkeypatch.setattr(settings, "telegram_intent_router_enabled", True)
+
+    mark_service = MagicMock()
+    search_service = MagicMock()
+    telegram_client = MagicMock()
+    handler = TelegramUpdateHandler(
+        mark_service=mark_service,
+        search_service=search_service,
+        telegram_client=telegram_client,
+        event_store=TelegramEventStore(tmp_path / "jobs.sqlite3"),
+    )
+
+    classification = IntentClassification(
+        intent="search",
+        confidence="medium",
+        reason="The message sounds like a question about saved notes.",
+    )
+
+    update = {
+        **TEXT_UPDATE,
+        "update_id": 10005,
+        "message": {
+            **TEXT_UPDATE["message"],
+            "text": "Anything on MLX?",
+            "entities": [],
+        },
+    }
+
+    with patch(
+        "cue_mark.telegram.routing.classify_intent",
+        return_value=classification,
+    ):
+        _, inbound = handler.accept_update(update)
+        handler.process_inbound(inbound)
+
+    mark_service.capture.assert_not_called()
+    search_service.search.assert_not_called()
+    reply = telegram_client.send_message.call_args.args[1]
+    assert "I'm not sure what you want to do." in reply
+    assert "Best guess: search (medium confidence)" in reply
+
+
+def test_handler_classifier_success_includes_route_prefix(monkeypatch, tmp_path):
+    from cue.config import settings
+    from cue_mark.telegram.intent_router import IntentClassification
+    from cue_search.models import SearchResponse
+
+    monkeypatch.setattr(settings, "mark_vault_root", str(tmp_path / "vault"))
+    monkeypatch.setattr(settings, "telegram_allowed_users", "123456789")
+    monkeypatch.setattr(settings, "telegram_intent_router_enabled", True)
+
+    mark_service = MagicMock()
+    search_service = MagicMock()
+    search_service.search.return_value = SearchResponse(
+        answer="**WisdomPlan** is relevant.",
+        sources=[],
+    )
+    telegram_client = MagicMock()
+    handler = TelegramUpdateHandler(
+        mark_service=mark_service,
+        search_service=search_service,
+        telegram_client=telegram_client,
+        event_store=TelegramEventStore(tmp_path / "jobs.sqlite3"),
+    )
+
+    classification = IntentClassification(
+        intent="search",
+        confidence="high",
+        reason="User asked whether they saved notes on a topic.",
+        search_query="learning with AI",
+    )
+
+    update = {
+        **TEXT_UPDATE,
+        "update_id": 10007,
+        "message": {
+            **TEXT_UPDATE["message"],
+            "text": "Is there anything I saved about learning with AI?",
+            "entities": [],
+        },
+    }
+
+    with patch(
+        "cue_mark.telegram.routing.classify_intent",
+        return_value=classification,
+    ):
+        _, inbound = handler.accept_update(update)
+        handler.process_inbound(inbound)
+
+    mark_service.capture.assert_not_called()
+    reply = telegram_client.send_message.call_args.args[1]
+    assert reply.startswith("<i>Routed as: search (high confidence)</i>")
+    assert "Reason: User asked whether they saved notes on a topic." in reply
+    assert "<b>WisdomPlan</b> is relevant." in reply
+
+
+def test_handler_classifier_error_includes_route_context(monkeypatch, tmp_path):
+    from cue.config import settings
+    from cue_mark.telegram.intent_router import IntentClassification
+
+    monkeypatch.setattr(settings, "mark_vault_root", str(tmp_path / "vault"))
+    monkeypatch.setattr(settings, "telegram_allowed_users", "123456789")
+    monkeypatch.setattr(settings, "telegram_intent_router_enabled", True)
+
+    mark_service = MagicMock()
+    search_service = MagicMock()
+    search_service.search.side_effect = RuntimeError("boom")
+    telegram_client = MagicMock()
+    handler = TelegramUpdateHandler(
+        mark_service=mark_service,
+        search_service=search_service,
+        telegram_client=telegram_client,
+        event_store=TelegramEventStore(tmp_path / "jobs.sqlite3"),
+    )
+
+    classification = IntentClassification(
+        intent="search",
+        confidence="high",
+        reason="User asked about saved bookmarks.",
+        search_query="AI agents",
+    )
+
+    update = {
+        **TEXT_UPDATE,
+        "update_id": 10006,
+        "message": {
+            **TEXT_UPDATE["message"],
+            "text": "Is there anything I bookmarked about AI agents?",
+            "entities": [],
+        },
+    }
+
+    with patch(
+        "cue_mark.telegram.routing.classify_intent",
+        return_value=classification,
+    ):
+        _, inbound = handler.accept_update(update)
+        handler.process_inbound(inbound)
+
+    mark_service.capture.assert_not_called()
+    reply = telegram_client.send_message.call_args.args[1]
+    assert reply.startswith("Routed as: search (high confidence)")
+    assert "Reason: User asked about saved bookmarks." in reply
+    assert "Could not process message: boom" in reply

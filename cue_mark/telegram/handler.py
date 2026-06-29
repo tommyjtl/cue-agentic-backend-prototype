@@ -19,6 +19,13 @@ from cue_mark.telegram.commands import (
 from cue_mark.page_gates import PageFetchBlockedError
 from cue_mark.telegram.formatting import format_search_reply
 from cue_mark.telegram.parser import InboundMessage, TelegramParseError, parse_update
+from cue_mark.telegram.routing import (
+    RouteDecision,
+    apply_classifier_context,
+    format_classifier_prefix,
+    format_route_error,
+    resolve_route,
+)
 from cue_mark.telegram.store import TelegramEventStore
 from cue_search.models import SearchRequest
 from cue_search.search_service import SearchService
@@ -77,27 +84,54 @@ class TelegramUpdateHandler:
 
     def process_inbound(self, inbound: InboundMessage) -> None:
         client = self.telegram_client or TelegramClient()
-        command = parse_text_command(inbound.text)
+        decision = resolve_route(
+            inbound,
+            router_enabled=settings.telegram_intent_router_enabled,
+        )
+        self._log_route_decision(inbound, decision)
 
         action = chat_action_for_inbound(inbound)
         with self._typing_indicator(client, inbound.chat_id, action=action):
             try:
+                if decision.clarification:
+                    self._send_reply(client, inbound, decision.clarification)
+                    self.event_store.mark_completed(
+                        inbound.event_id,
+                        title="intent:uncertain",
+                        file_path="",
+                    )
+                    return
+
+                command = decision.command
                 if command.kind == "search":
-                    self._process_search(client, inbound, command)
+                    self._process_search(client, inbound, command, decision)
                 elif command.kind == "reindex":
-                    self._process_reindex(client, inbound)
+                    self._process_reindex(client, inbound, decision)
                 else:
-                    self._process_mark(client, inbound)
+                    self._process_mark(client, inbound, decision)
             except PageFetchBlockedError as exc:
                 logger.info("Blocked page fetch for Telegram update %s: %s", inbound.event_id, exc)
                 self.event_store.mark_failed(inbound.event_id, error=str(exc))
-                self._send_reply(client, inbound, str(exc))
+                self._send_reply(
+                    client,
+                    inbound,
+                    format_route_error(str(exc), decision),
+                )
             except Exception as exc:
                 logger.exception("Failed to process Telegram update %s", inbound.event_id)
                 self.event_store.mark_failed(inbound.event_id, error=str(exc))
-                self._send_reply(client, inbound, f"Could not process message: {exc}")
+                self._send_reply(
+                    client,
+                    inbound,
+                    format_route_error(f"Could not process message: {exc}", decision),
+                )
 
-    def _process_mark(self, client: TelegramClient, inbound: InboundMessage) -> None:
+    def _process_mark(
+        self,
+        client: TelegramClient,
+        inbound: InboundMessage,
+        decision: RouteDecision,
+    ) -> None:
         image_paths: list[Path] = []
         try:
             image_paths = self._download_images(client, inbound)
@@ -109,7 +143,8 @@ class TelegramUpdateHandler:
                     sync_index=True,
                 )
             )
-            self._send_reply(client, inbound, f"Saved: {result.title}")
+            reply = apply_classifier_context(f"Saved: {result.title}", decision)
+            self._send_reply(client, inbound, reply)
             self.event_store.mark_completed(
                 inbound.event_id,
                 title=result.title,
@@ -123,6 +158,7 @@ class TelegramUpdateHandler:
         client: TelegramClient,
         inbound: InboundMessage,
         command: ParsedTextCommand,
+        decision: RouteDecision,
     ) -> None:
         if not command.search_query:
             self._send_reply(client, inbound, SEARCH_USAGE_MESSAGE)
@@ -142,11 +178,20 @@ class TelegramUpdateHandler:
                 summary_only=True,
             )
         )
+        html_body = format_search_reply(response.answer)
+        plain_fallback = response.answer
+        if decision.source == "classifier" and decision.classification is not None:
+            prefix_html = format_classifier_prefix(decision.classification, html=True)
+            prefix_plain = format_classifier_prefix(decision.classification)
+            html_body = prefix_html + html_body
+            plain_fallback = prefix_plain + plain_fallback
+
         self._send_reply(
             client,
             inbound,
-            response.answer,
+            html_body,
             html=True,
+            fallback_text=plain_fallback,
         )
         self.event_store.mark_completed(
             inbound.event_id,
@@ -164,10 +209,18 @@ class TelegramUpdateHandler:
             )
         self._send_reply(client, inbound, reply)
 
-    def _process_reindex(self, client: TelegramClient, inbound: InboundMessage) -> None:
+    def _process_reindex(
+        self,
+        client: TelegramClient,
+        inbound: InboundMessage,
+        decision: RouteDecision,
+    ) -> None:
         corpus_root = str(settings.mark_vault_dir)
         result = self.search_service.sync_index(corpus_root)
-        reply = f"Indexed {result.chunks_indexed} chunks from {result.files_scanned} files."
+        reply = apply_classifier_context(
+            f"Indexed {result.chunks_indexed} chunks from {result.files_scanned} files.",
+            decision,
+        )
         self._send_reply(client, inbound, reply)
         self.event_store.mark_completed(
             inbound.event_id,
@@ -182,13 +235,14 @@ class TelegramUpdateHandler:
         text: str,
         *,
         html: bool = False,
+        fallback_text: str | None = None,
     ) -> None:
         if html:
             client.send_message(
                 inbound.chat_id,
-                format_search_reply(text),
+                text,
                 parse_mode="HTML",
-                fallback_text=text,
+                fallback_text=fallback_text if fallback_text is not None else text,
             )
         else:
             client.send_message(inbound.chat_id, text)
@@ -250,6 +304,27 @@ class TelegramUpdateHandler:
         if not allowed:
             return True
         return sender_id in allowed
+
+    @staticmethod
+    def _log_route_decision(inbound: InboundMessage, decision: RouteDecision) -> None:
+        if decision.classification is None:
+            logger.info(
+                "Intent route event=%s source=%s command=%s",
+                inbound.event_id,
+                decision.source,
+                decision.command.kind,
+            )
+            return
+
+        classification = decision.classification
+        logger.info(
+            "Intent route event=%s source=%s intent=%s confidence=%s reason=%s",
+            inbound.event_id,
+            decision.source,
+            classification.intent,
+            classification.confidence,
+            classification.reason,
+        )
 
 
 def chat_action_for_inbound(inbound: InboundMessage) -> str:
